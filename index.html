@@ -4,9 +4,12 @@
 <title>Title of the document</title>
 <script src="jquery.js" language="javascript"></script>
 <script language="javascript" src="jqr.js"></script>
+<style>
+	canvas {border:1px solid blue;}
+</style>
 </head>
 
-<body>
+<body onload="$('#canvas').qrcode()">
+	<div id="canvas">Hello</div>
 </body>
-<canvas width="100" height="100" id="canvas" style="width:100px; height:100px"></canvas>
 </html>
