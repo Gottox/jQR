@@ -36,6 +36,7 @@ for (var i = 0; i < 255; i++) {
 }
 (function( $ ){
 $.fn.qrcode= function() {
+	console.log("New QRCode")
 	var obj = $(this);
 	var text = arguments.length > 0 ? arguments[0] : obj.text();
 	var width = arguments.length > 1 ? arguments[1] : 200;
@@ -107,6 +108,7 @@ $.fn.qrcode= function() {
 			this.inbounds = i < this.length;
 			this.index = Math.floor(i / this.bits);
 			this.offset = i % this.bits;
+
 			return this;
 		},
 		n : function() {
@@ -127,9 +129,10 @@ $.fn.qrcode= function() {
 			}
 			return this;
 		},
-		put : function(v, l) {
-			for(var i = 0; i < l; i++)
-				this.set(((v >>> i) & 1) == 1).p(this.i + 1);
+		put : function(v, l, r) {
+			for(var i = 0; i < l; i++){
+				this.set(((v >>> (r ? i : l-1-i)) & 1) == 1).n();
+			}
 			return this;
 		},
 		write : function(a) {
@@ -137,19 +140,18 @@ $.fn.qrcode= function() {
 				this.set(a.p(i).get()).p(this.i + 1);
 			return this;
 		},
-		tobytes : function() {
-			var bytes = new Array(Math.ceil(this.length / 8));
+		bytes : function() {
+			var tmp = new Array(Math.ceil(this.length / 8));
 			this.p(0);
-			for(var i = 0; i < bytes.length; i++) {
+			for(var i = 0; i < tmp.length; i++) {
 				for(var b = 0; b < 8; b++) {
-					bytes[i] |= (this.get()) << b;
+					tmp[i] |= (this.get()) << (7 - b);
 					this.n();
 				}
 			}
-			return bytes;
-		}
+			return tmp;
+		},
 	}
-
 	var Bitmap = function(w, h) {
 		this.width = w;
 		this.height = h;
@@ -171,13 +173,14 @@ $.fn.qrcode= function() {
 		n : function() {
 			return this.p(this.x+1,this.y);
 		},
-		set: function(v) {
+		set : function(v) {
 			this.mask.set(1);
 			this.map.set(v);
 			return this;
 		},
-		put: function(v, l) {
-			this.map.put(v, l);
+		put : function(v, l, r) {
+			this.map.put(v, l, r);
+			this.mask.put(~0, l, r);
 			return this;
 		},
 		get: function() {
@@ -188,6 +191,9 @@ $.fn.qrcode= function() {
 			var ys = this.y;
 			for(var y = 0; y < map.height; y++) {
 				for(var x = 0; x < map.width; x++) {
+					if(xs+x < 0 || ys+y < 0 || xs+x >= this.width
+						|| ys+y >= this.height)
+						continue;
 					if(map.p(x,y).ismasked())
 						this.p(xs+x, ys+y)
 							.set(map.get());
@@ -198,35 +204,13 @@ $.fn.qrcode= function() {
 		ismasked : function() {
 			return this.mask.get();
 		},
-		rotate : function(deg) {
-			deg = deg % 4;
-			var map;
-			switch(deg) {
-			case 1:
-				map = new Bitmap(this.height, this.width)
-				for(var y = 0; y < this.height; y++)
-					for(var x = 0; x < this.width; x++) {
-						if(map.p(y, x).ismasked())
-							map.set(this.p(x,y).get());
-					}
-				break;
-			case 2:
-				map = new Bitmap(this.width, this.height)
-				for(var y = 0; y < this.height; y++)
-					for(var x = 0; x < this.width; x++) {
-						if(map.p(this.width-x-1, this.height-y-1).ismasked())
-							map.set(this.p(x,y).get());
-					}
-				break;
-			case 3:
-				map = new Bitmap(this.height, this.width)
-				for(var y = 0; y < this.height; y++)
-					for(var x = 0; x < this.width; x++) {
-						if(map.p(this.width-y-1, this.height-x-1).ismasked())
-							map.set(this.p(x,y).get());
-					}
-				break;
-			}
+		rotate : function() {
+			map = new Bitmap(this.height, this.width)
+			for(var y = 0; y < this.height; y++)
+				for(var x = 0; x < this.width; x++) {
+					if(this.p(x, y).ismasked())
+						map.p(this.height-1-y,x).set(this.get());
+				}
 			return map;
 		}
 	}
@@ -258,38 +242,97 @@ $.fn.qrcode= function() {
 	}
 
 	var RSBlock = function(count, totalcnt, datacnt) {
-		this.count = count;
+		this.count = count
 		this.datacnt = datacnt;
 		this.totalcnt = totalcnt;
 		this.eccnt = totalcnt - datacnt;
 
 		this.ecdata = null;
-		this.data = new Bitarray(this.datacnt * 8)
+		this.data = null;
 	}
 	RSBlock.prototype = {
-		fill : function(offset,data) {
+		correct : function(offset, data) {
+			this.data = new Bitarray(this.datacnt * 8)
 			data.p(offset);
 			while(data.inbounds && this.data.inbounds) {
 				this.data.set(data.get())
-					.p(this.data.i + 1);
-				data.p(data.i + 1);
+					.n();
+				data.n();
 			}
-			return data.i;
-		},
-		correction : function() {
 			var rs = new Polynomial([1], 0);
 			for(var i = 0; i < this.eccnt; i++) {
 				rs = rs.multiply(
 						new Polynomial([1, Math2.gexp(i)], 0));
 			}
-			var raw = new Polynomial(this.data.tobytes(), rs.getLength() - 1);
+			var raw = new Polynomial(this.data.bytes(), rs.getLength() - 1);
 			var mod = raw.mod(rs);
 			this.ecdata = new Array(rs.getLength() - 1);
 			for(var i = 0; i < this.ecdata.length; i++) {
 				var modIndex = i + mod.getLength() - this.ecdata.length;
 				this.ecdata[i] = (modIndex >= 0)? mod.get(modIndex) : 0;
 			}
+			return data.i;
 		}
+	}
+	RSBlock.build = function(errorlevel, type) {
+		var blocks = {
+			1 : [ // L
+				[[1, 26, 19]],
+				[[1, 44, 34]],
+				[[1, 70, 55]],
+				[[1, 100, 80]],
+				[[1, 134, 108]],
+				[[2, 86, 68]],
+				[[2, 98, 78]],
+				[[2, 121, 97]],
+				[[2, 146, 116]],
+				[[2, 86, 68], [2, 87, 69]],
+			],
+			0: [ // M
+				[[1, 26, 16]],
+				[[1, 44, 28]],
+				[[1, 70, 44]],
+				[[2, 50, 32]],
+				[[2, 67, 43]],
+				[[4, 43, 27]],
+				[[4, 49, 31]],
+				[[2, 60, 38], [2, 61, 39]],
+				[[3, 58, 36], [2, 59, 37]],
+				[[4, 69, 43], [1, 70, 44]],
+			],
+			3: [ // Q
+				[[1, 26, 13]],
+				[[1, 44, 22]],
+				[[2, 35, 17]],
+				[[2, 50, 24]],
+				[[2, 33, 15], [2, 34, 16]],
+				[[4, 43, 19]],
+				[[2, 32, 14], [4, 33, 15]],
+				[[4, 36, 16], [4, 37, 17]],
+				[[4, 40, 18], [2, 41, 19]],
+				[[6, 43, 19], [2, 44, 20]],
+			],
+			2: [ // H
+				[[1, 26, 9]],
+				[[1, 44, 16]],
+				[[2, 35, 13]],
+				[[4, 25, 9]],
+				[[2, 33, 11], [2, 34, 12]],
+				[[4, 43, 15]],
+				[[4, 39, 13], [1, 40, 14]],
+				[[4, 40, 14], [2, 41, 15]],
+				[[4, 36, 12], [4, 37, 13]],
+				[[6, 43, 15], [2, 44, 16]],
+			],
+		}
+		var rs = blocks[errorlevel][type-1];
+		var list = [];
+		for(var i = 0; i < rs.length; i++) {
+			for(var j = 0; j < rs[i][0];j++) {
+				list.push(new RSBlock(rs[i][0],rs[i][1],rs[i][2]))
+			}
+		}
+		return list;
 	}
 	var QRCode = function(errorlevel, mask) {
 		var errorlevels = {
@@ -298,67 +341,18 @@ $.fn.qrcode= function() {
 			'Q':3, // Normal (25%)
 			'H':2  // High (30%)
 		}
-		this.rsblock = {
-			1 : [
-				[new RSBlock(1, 26, 19)],
-				[new RSBlock(1, 44, 34)],
-				[new RSBlock(1, 70, 55)],
-				[new RSBlock(1, 100, 80)],
-				[new RSBlock(1, 134, 108)],
-				[new RSBlock(2, 86, 68)],
-				[new RSBlock(2, 98, 78)],
-				[new RSBlock(2, 121, 97)],
-				[new RSBlock(2, 146, 116)],
-				[new RSBlock(2, 86, 68),new RSBlock(2, 87, 69)],
-			],
-			0: [
-				[new RSBlock(1, 26, 16)],
-				[new RSBlock(1, 44, 28)],
-				[new RSBlock(1, 70, 44)],
-				[new RSBlock(2, 50, 32)],
-				[new RSBlock(2, 67, 43)],
-				[new RSBlock(4, 43, 27)],
-				[new RSBlock(4, 49, 31)],
-				[new RSBlock(2, 60, 38),new RSBlock(2, 61, 39)],
-				[new RSBlock(3, 58, 36),new RSBlock(2, 59, 37)],
-				[new RSBlock(4, 69, 43),new RSBlock(1, 70, 44)],
-			],
-			3: [
-				[new RSBlock(1, 26, 13)],
-				[new RSBlock(1, 44, 22)],
-				[new RSBlock(2, 35, 17)],
-				[new RSBlock(2, 50, 24)],
-				[new RSBlock(2, 33, 15),new RSBlock(2, 34, 16), 16],
-				[new RSBlock(4, 43, 19)],
-				[new RSBlock(2, 32, 14),new RSBlock(4, 33, 15)],
-				[new RSBlock(4, 40, 18),new RSBlock(2, 41, 19)],
-				[new RSBlock(4, 36, 16),new RSBlock(4, 37, 17)],
-				[new RSBlock(6, 43, 19),new RSBlock(2, 44, 20)],
-			],
-
-			2: [
-				[new RSBlock(1, 26, 9)],
-				[new RSBlock(1, 44, 16)],
-				[new RSBlock(2, 35, 13)],
-				[new RSBlock(4, 25, 9)],
-				[new RSBlock(2, 33, 11),new RSBlock(2, 34, 34)],
-				[new RSBlock(4, 43, 15)],
-				[new RSBlock(4, 39, 13),new RSBlock(1, 40, 14)],
-				[new RSBlock(4, 40, 14),new RSBlock(2, 41, 15)],
-				[new RSBlock(4, 36, 12),new RSBlock(4, 37, 13)],
-				[new RSBlock(6, 43, 15),new RSBlock(2, 44, 16)],
-			],
-		}
 		this.type = 0;
 		this.errorlevel = errorlevels[errorlevel];
 		this.posFigure = figureFactory(
-			"xxxxxxx",
-			"x     x",
-			"x xxx x",
-			"x xxx x",
-			"x xxx x",
-			"x     x",
-			"xxxxxxx"
+			"         ",
+			" xxxxxxx ",
+			" x     x ",
+			" x xxx x ",
+			" x xxx x ",
+			" x xxx x ",
+			" x     x ",
+			" xxxxxxx ",
+			"         "
 			);
 		this.alignFigure = figureFactory(
 			"xxxxx",
@@ -369,18 +363,18 @@ $.fn.qrcode= function() {
 			);
 		this.mask = mask;
 		this.image = null;
-		this.datas = [];
-		this.bytes = null;
+		this.junks = [];
+		this.data = null
 	}
 	QRCode.prototype = {
 		drawstatic : function() {
 			// Left Top
-			this.image.p(0,0).merge(this.posFigure);
+			this.image.p(-1,-1).merge(this.posFigure);
 			// Right Top
-			this.image.p(this.size-this.posFigure.width, 0)
+			this.image.p(this.size-this.posFigure.width+1, -1)
 				.merge(this.posFigure);
 			// Left Bottom
-			this.image.p(0, this.size-this.posFigure.height)
+			this.image.p(-1, this.size-this.posFigure.height+1)
 				.merge(this.posFigure);
 			// Alignment
 			this.image.p(this.size-4-this.alignFigure.width,
@@ -388,7 +382,7 @@ $.fn.qrcode= function() {
 				.merge(this.alignFigure);
 			// Horizontal
 			drawTiming(this.image, 8, 6, this.size-this.posFigure.height, 6);
-			// Vertival
+			// Vertical
 			drawTiming(this.image, 6, 8, 6, this.size-this.posFigure.height);
 		},
 		drawtypenumber : function() {
@@ -408,143 +402,177 @@ $.fn.qrcode= function() {
 			data = bch(data, g15) ^ mask;
 			var vertical = new Bitmap(this.size, 1);
 			// first 6 bit
-			vertical.put(data, 6)
+			vertical.put(data, 6, true)
 			// Recover timing pixel
-				.put(1,1)
+				.put(1,1, true)
 			// set two bits afterwards
-				.put(data >>> 6, 2)
+				.put(data >>> 6, 2, true)
 			// rest follows at the end
-				.p(this.size - 7, 0)
-				.put(data >>> 8, 8);
+				.p(this.size - 8, 0)
+				.put(1,1, true)
+				.put(data >>> 8, 7, true);
 
-			this.image.p(8,0).merge(vertical.rotate(1));
+			this.image.p(8,0).merge(vertical.rotate());
 
 			var horizontal = new Bitmap(this.size, 1);
-			horizontal.put(data, 8)
+			horizontal.put(data, 8, true)
 				.p(this.size - 8,0)
-				.put(data >>> 8, 1)
+				.put(data >>> 8, 1, true)
 				.put(1, 1)
-				.put(data >>> 9, 6)
+				.put(data >>> 9, 6,true)
 
-			this.image.p(0,8).merge(horizontal.rotate(2));
+			this.image.p(0,8).merge(horizontal.rotate().rotate());
 		},
 		add8bittext : function(text) {
 			var data = new Bitarray(text.length * 8);
 			for(var i = 0; i < text.length; i++) {
 				data.put(text.charCodeAt(i), 8);
 			}
-			this.datas.push({data: data, mode: 1<<2})
+			this.junks.push({data: data, mode: 1<<2})
 		},
-		packdata : function() {
-			var rsblock = this.rsblock[this.errorlevel][this.type];
+		joinjunks : function() {
+			var rs = RSBlock.build(this.errorlevel, this.type);
 			var size = 0;
-			for(var i = 0; i < this.datas.length; i++)
-				size += 4 + this.datas[i].data.length;
+			for(var i = 0; i < this.junks.length; i++)
+				size += 4 + this.junks[i].data.length;
 			var maxsize = 0;
-			var total = 0
-			for(var i = 0; i < rsblock.length; i++) {
-				maxsize += rsblock[i].datacnt * 8;
-				total += rsblock[i].totalcnt;
+			for(var i = 0; i < rs.length; i++) {
+				maxsize += rs[i].datacnt * 8;
 			}
 			if(size > maxsize) {
 				alert("too much data!");
 				return;
 			}
 
-			var data = new Bitarray(maxsize);
-			for(var i = 0; i < this.datas.length; i++)
-				data.put(this.datas[i].mode, 4)
-					.put(this.datas[i].length,
-						this.typelength(this.datas[i].mode))
-					.write(this.datas[i].data);
-
-			// padding
-			if(data.i <= maxsize)
-				data.put(0, 4);
-			if(data.i % 8 != 0)
-				data.put(0, 8 - (size % 8));
-			
-			while(data.i < maxsize) {
-				data.put(0xEC, 8)
-					.put(0x11,8)
+			this.data = new Bitarray(maxsize);
+			for(var i = 0; i < this.junks.length; i++) {
+				this.data
+					.put(this.junks[i].mode, 4)
+					.put(this.junks[i].data.length/8,
+						this.typelength(this.junks[i].mode))
+					.write(this.junks[i].data);
 			}
 
+			/*var l = this.data.i;
+			var str = "";
+			this.data.p(0);
+			while(this.data.inbounds) {
+				str += this.data.get();
+				this.data.n();
+			}
+			console.log(str.substr(0,l));
+			if(this.data.i <= maxsize)
+				this.data.put(0, 4);*/
+
+
+			// padding
+			if(this.data.i % 8 != 0)
+				this.data.put(0, 8 - (size % 8));
+			
+			while(this.data.i < maxsize) {
+				this.data.put(0xEC, 8)
+					.put(0x11,8)
+			}
+		},
+		rsblock : function() {
+			//console.log(this.data.bytes())
+			var rs = RSBlock.build(this.errorlevel, this.type);
+			var total = 0;
+			for(var i = 0; i < rs.length; i++) {
+				total += rs[i].totalcnt;
+			}
 			var offset = 0;
 			var maxdc = 0;
 			var maxec = 0;
-			for(var i = 0; i < rsblock.length; i++) {
-				offset = rsblock[i].fill(offset, data);
-				rsblock[i].correction();
-				maxdc = Math.max(maxdc, rsblock[i].datacnt);
-				maxec = Math.max(maxec, rsblock[i].eccnt);
+			var dcdata = []
+			for(var i = 0; i < rs.length; i++) {
+				//for(var i in rs[i])
+				//	console.log(i)
+				offset = rs[i].correct(offset, this.data);
+				maxdc = Math.max(maxdc, rs[i].datacnt);
+				maxec = Math.max(maxec, rs[i].eccnt);
+				dcdata.push(rs[i].data.bytes());
 			}
 
-			var bytes = new Bitarray(8 * total);
+
+			this.data = new Bitarray(8 * total);
 			for (var i = 0; i < maxdc; i++) {
-				for (var r = 0; r < rsblock.length; r++) {
-					if (i < rsblock[r].data.length) {
-						bytes.put(rsblock[r].data[i], 8)
+				for (var r = 0; r < rs.length; r++) {
+					if (i < dcdata[r].length) {
+						this.data.put(dcdata[r][i],8);
 					}
 				}
 			}
 			for (var i = 0; i < maxec; i++) {
-				for (var r = 0; r < rsblock.length; r++) {
-					if (i < rsblock[r].data.length) {
-						bytes.put(rsblock[r].ecdata[i], 8)
+				for (var r = 0; r < rs.length; r++) {
+					if (i < rs[r].ecdata.length) {
+						this.data.put(rs[r].ecdata[i],8);
 					}
 				}
 			}
-			this.bytes = bytes;
-		},
-		drawcode : function() {
-			this.image.p(0,0);
-			this.bytes.p(0)
-			alert(this.bytes.length + " " + this.size*this.size);
-			alert(this.bytes.array);
+			console.log(this.data.bytes())
 
-			while(this.image.inbounds && this.bytes.inbounds) {
-				if(this.image.ismasked()) {
-					this.image.n()
-				}
-				else {
-					this.image.set(this.bytes.get());
-					this.image.n();
-					this.bytes.n();
-				}
+			/*for (var r = 0; r < rs.length; r++) {
+				raw.write(rs[r].data)
 			}
-			/*for (var col = this.size - 1; col > 0; col -= 2) {
-				console.log(col)
-				if (col == 6) col--;
-				while (true) {
-					for (var c = 0; c < 2; c++) {
-						this.image.p(col - c, row)
-						if(!this.image.ismasked()) {
-							this.image.set(1);
-							/*
-							var dark = false;
-							if (byteIndex < data.length) {
-								dark = ( ( (data[byteIndex] >>> bitIndex) & 1) == 1);
-							}
-							var mask = QRUtil.getMask(maskPattern, row, col - c);
-							if (mask) {
-								dark = !dark;
-							}
-							this.image.set(dark);
-							bitIndex--;
-							if (bitIndex == -1) {
-								byteIndex++;
-								bitIndex = 7;
-							}
-						}
-					}
-					row += inc;
-					if (row < 0 || this.moduleCount <= row) {
-						row -= inc;
-						inc = -inc;
-						break;
+			console.log(raw.bytes())
+
+			for (var r = 0; r < rs.length; r++) {
+				for (var i = 0; i < maxec; i++) {
+					if (i < rs[r].data.length) {
+						raw.put(rs[r].ecdata[i], 8)
 					}
 				}
 			}*/
+			//console.log(this.data.bytes())
+		},
+
+		drawcode : function() {
+			console.log(this.data.bytes());
+			var y = this.size - 1;
+			var dump = "";
+			this.data.p(0)
+			while(this.data.inbounds) {
+				dump += this.data.get();
+				this.data.n();
+			}
+			this.data.p(0)
+			//var __choords;
+			__choords = []
+			var setpx = function(t,x,y) {
+				if(!t.image.p(x,y).ismasked()) {
+					var v = t.data.get();
+					if(t.maskpatterns[t.mask](y,x) != t.maskpatterns[t.mask](x,y)) {
+						console.log(t.maskpatterns[t.mask])
+						console.log(x + " " + y);
+					}
+					
+					if(t.maskpatterns[t.mask](x,y))
+						v = !v;
+					t.image.set(v);
+					t.data.n();
+				}
+			}
+			for(var x = this.size - 1; x >= 0; x -= 2) {
+				for(var y = this.size - 1; y >= 0; y--) {
+					setpx(this,x,y);
+					setpx(this,x-1,y);
+				}
+				x-=2;
+				for(var y = 0; y < this.size; y++) {
+					setpx(this,x,y);
+					setpx(this,x-1,y);
+				}
+			}
+
+			var inc = -1;
+			var row = this.moduleCount - 1;
+			var bitIndex = 7;
+			var byteIndex = 0;
+			console.log(dump);
+			$('body').append('<br>');
+			$('body').append(dump);
+			$('body').append('<br>');
 		},
 		typelength: function(mode) {
 			if (this.type < 10) {
@@ -579,22 +607,23 @@ $.fn.qrcode= function() {
 			if(type >= 7) {
 				this.drawtypenumber()
 			}
-			this.packdata();
+			this.joinjunks();
+			this.rsblock();
 			this.drawcode();
 		},
 		maskpatterns: [
-			function(i,j,v) { return (i + j) % 2 == 0 ? ~v : v; },
-			function(i,j,v) { return i % 2 == 0 ? ~v : v; },
-			function(i,j,v) { return j % 3 == 0 ? ~v : v; },
-			function(i,j,v) { return (i + j) % 3 == 0 ? ~v : v; },
-			function(i,j,v) { return (Math.floor(i / 2) + Math.floor(j / 3) ) % 2 == 0 ? ~v : v; },
-			function(i,j,v) { return (i * j) % 2 + (i * j) % 3 == 0 ? ~v : v; },
-			function(i,j,v) { return ( (i * j) % 2 + (i * j) % 3) % 2 == 0 ? ~v : v; },
-			function(i,j,v) { return ( (i * j) % 3 + (i + j) % 2) % 2 == 0 ? ~v : v; },
+			function(x,y) { return (x + y) % 2 == 0; },
+			function(x,y) { return y % 2 == 0; },
+			function(x,y) { return x % 3 == 0; },
+			function(x,y) { return (x + y) % 3 == 0; },
+			function(x,y) { return (Math.floor(x / 3) + Math.floor(y / 2) ) % 2 == 0; },
+			function(x,y) { return (x * y) % 2 + (x * y) % 3 == 0; },
+			function(x,y) { return ( (x * y) % 2 + (x * y) % 3) % 2 == 0; },
+			function(x,y) { return ( (x * y) % 3 + (x + y) % 2) % 2 == 0; },
 		]
 	}
 
-	var CanvasDrawer = function(obj, bitmap, factor) {
+	var CanvasDrawer = function(bitmap, obj, factor) {
 		this.obj = obj;
 		this.canvas = $('<canvas>');
 		this.bitmap = bitmap;
@@ -615,12 +644,28 @@ $.fn.qrcode= function() {
 			}
 		},
 	}
+	var TextDrawer = function(bitmap, pattern) {
+		this.bitmap = bitmap;
+		this.pattern = pattern;
+	}
+	TextDrawer.prototype = {
+		draw : function() {
+			var text = "";
+			for(var y = 0; y < this.bitmap.height; y++) {
+				for(var x = 0; x < this.bitmap.width; x++) {
+					text += pattern[this.bitmap.p(x,y).get() ? 0 : 1]
+				}
+			}
+			text += "\n"
+		}
+	}
 
-	var qrcode = new QRCode('H',3);
+	var qrcode = new QRCode('H',4);
 	qrcode.add8bittext(text);
 	qrcode.create(4);
 	
-	var drawer = new CanvasDrawer(obj, qrcode.image, 2);
+	var drawer = new CanvasDrawer(qrcode.image, obj, 2);
+	//var drawer = new TextDrawer(qrcode.image, [" "]);
 	drawer.draw();
 	
   };
