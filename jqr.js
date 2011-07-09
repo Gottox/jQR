@@ -1,7 +1,7 @@
 (function( $ ){
 $.fn.qrcode= function() {
 	var Math2 = {
-		glog : function(n) {
+		log : function(n) {
 		
 			if (n < 1) {
 				throw new Error("glog(" + n + ")");
@@ -9,7 +9,7 @@ $.fn.qrcode= function() {
 			
 			return Math2.LOG_TABLE[n];
 		},
-		gexp : function(n) {
+		exp : function(n) {
 			while (n < 0) {
 				n += 255;
 			}
@@ -38,9 +38,6 @@ $.fn.qrcode= function() {
 	}
 
 	var Polynomial = function(num, shift) {
-		if (num.length == undefined) {
-			throw new Error(num.length + "/" + shift);
-		}
 		var offset = 0;
 		while (offset < num.length && num[offset] == 0) {
 			offset++;
@@ -59,7 +56,7 @@ $.fn.qrcode= function() {
 			var num = new Array(this.length + e.length - 1);
 			for (var i = 0; i < this.length; i++) {
 				for (var j = 0; j < e.length; j++) {
-					num[i + j] ^= Math2.gexp(Math2.glog(this.get(i) ) + Math2.glog(e.get(j) ) );
+					num[i + j] ^= Math2.exp(Math2.log(this.get(i) ) + Math2.log(e.get(j) ) );
 				}
 			}
 			return new Polynomial(num, 0);
@@ -68,13 +65,13 @@ $.fn.qrcode= function() {
 			if (this.length - e.length < 0) {
 				return this;
 			}
-			var ratio = Math2.glog(this.get(0) ) - Math2.glog(e.get(0) );
+			var ratio = Math2.log(this.get(0) ) - Math2.log(e.get(0) );
 			var num = new Array(this.length);
 			for (var i = 0; i < this.length; i++) {
 				num[i] = this.get(i);
 			}
 			for (var i = 0; i < e.length; i++) {
-				num[i] ^= Math2.gexp(Math2.glog(e.get(i) ) + ratio);
+				num[i] ^= Math2.exp(Math2.log(e.get(i) ) + ratio);
 			}
 			// recursive call
 			return new Polynomial(num, 0).mod(e);
@@ -253,7 +250,7 @@ $.fn.qrcode= function() {
 			var rs = new Polynomial([1], 0);
 			for(var i = 0; i < this.eccnt; i++) {
 				rs = rs.multiply(
-						new Polynomial([1, Math2.gexp(i)], 0));
+						new Polynomial([1, Math2.exp(i)], 0));
 			}
 			var raw = new Polynomial(this.data.bytes(), rs.length - 1);
 			var mod = raw.mod(rs);
