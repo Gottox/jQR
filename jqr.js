@@ -1,48 +1,42 @@
-var Math2 = {
-	glog : function(n) {
-	
-		if (n < 1) {
-			throw new Error("glog(" + n + ")");
-		}
-		
-		return Math2.LOG_TABLE[n];
-	},
-	gexp : function(n) {
-		while (n < 0) {
-			n += 255;
-		}
-	
-		while (n >= 256) {
-			n -= 255;
-		}
-	
-		return Math2.EXP_TABLE[n];
-	},
-	EXP_TABLE : new Array(256),
-	LOG_TABLE : new Array(256)
-
-};
-for (var i = 0; i < 8; i++) {
-	Math2.EXP_TABLE[i] = 1 << i;
-}
-for (var i = 8; i < 256; i++) {
-	Math2.EXP_TABLE[i] = Math2.EXP_TABLE[i - 4]
-		^ Math2.EXP_TABLE[i - 5]
-		^ Math2.EXP_TABLE[i - 6]
-		^ Math2.EXP_TABLE[i - 8];
-}
-for (var i = 0; i < 255; i++) {
-	Math2.LOG_TABLE[Math2.EXP_TABLE[i] ] = i;
-}
 (function( $ ){
 $.fn.qrcode= function() {
-	console.log("New QRCode")
-	var obj = $(this);
-	var text = arguments.length > 0 ? arguments[0] : obj.text();
-	var width = arguments.length > 1 ? arguments[1] : 200;
-	var height = arguments.length > 2 ? arguments[3] : 200;
+	var Math2 = {
+		glog : function(n) {
+		
+			if (n < 1) {
+				throw new Error("glog(" + n + ")");
+			}
+			
+			return Math2.LOG_TABLE[n];
+		},
+		gexp : function(n) {
+			while (n < 0) {
+				n += 255;
+			}
+		
+			while (n >= 256) {
+				n -= 255;
+			}
+		
+			return Math2.EXP_TABLE[n];
+		},
+		EXP_TABLE : [],
+		LOG_TABLE : []
 
-	
+	};
+	for (var i = 0; i < 8; i++) {
+		Math2.EXP_TABLE[i] = 1 << i;
+	}
+	for (var i = 8; i < 256; i++) {
+		Math2.EXP_TABLE[i] = Math2.EXP_TABLE[i - 4]
+			^ Math2.EXP_TABLE[i - 5]
+			^ Math2.EXP_TABLE[i - 6]
+			^ Math2.EXP_TABLE[i - 8];
+	}
+	for (var i = 0; i < 255; i++) {
+		Math2.LOG_TABLE[Math2.EXP_TABLE[i]] = i;
+	}
+
 	var Polynomial = function(num, shift) {
 		if (num.length == undefined) {
 			throw new Error(num.length + "/" + shift);
@@ -55,34 +49,31 @@ $.fn.qrcode= function() {
 		for (var i = 0; i < num.length - offset; i++) {
 			this.num[i] = num[i + offset];
 		}
+		this.length = this.num.length;
 	}
-
 	Polynomial.prototype = {
 		get : function(index) {
 			return this.num[index];
 		},
-		getLength : function() {
-			return this.num.length;
-		},
 		multiply : function(e) {
-			var num = new Array(this.getLength() + e.getLength() - 1);
-			for (var i = 0; i < this.getLength(); i++) {
-				for (var j = 0; j < e.getLength(); j++) {
+			var num = new Array(this.length + e.length - 1);
+			for (var i = 0; i < this.length; i++) {
+				for (var j = 0; j < e.length; j++) {
 					num[i + j] ^= Math2.gexp(Math2.glog(this.get(i) ) + Math2.glog(e.get(j) ) );
 				}
 			}
 			return new Polynomial(num, 0);
 		},
 		mod : function(e) {
-			if (this.getLength() - e.getLength() < 0) {
+			if (this.length - e.length < 0) {
 				return this;
 			}
 			var ratio = Math2.glog(this.get(0) ) - Math2.glog(e.get(0) );
-			var num = new Array(this.getLength() );
-			for (var i = 0; i < this.getLength(); i++) {
+			var num = new Array(this.length);
+			for (var i = 0; i < this.length; i++) {
 				num[i] = this.get(i);
 			}
-			for (var i = 0; i < e.getLength(); i++) {
+			for (var i = 0; i < e.length; i++) {
 				num[i] ^= Math2.gexp(Math2.glog(e.get(i) ) + ratio);
 			}
 			// recursive call
@@ -150,7 +141,7 @@ $.fn.qrcode= function() {
 				}
 			}
 			return tmp;
-		},
+		}
 	}
 	var Bitmap = function(w, h) {
 		this.width = w;
@@ -264,11 +255,11 @@ $.fn.qrcode= function() {
 				rs = rs.multiply(
 						new Polynomial([1, Math2.gexp(i)], 0));
 			}
-			var raw = new Polynomial(this.data.bytes(), rs.getLength() - 1);
+			var raw = new Polynomial(this.data.bytes(), rs.length - 1);
 			var mod = raw.mod(rs);
-			this.ecdata = new Array(rs.getLength() - 1);
+			this.ecdata = new Array(rs.length - 1);
 			for(var i = 0; i < this.ecdata.length; i++) {
-				var modIndex = i + mod.getLength() - this.ecdata.length;
+				var modIndex = i + mod.length - this.ecdata.length;
 				this.ecdata[i] = (modIndex >= 0)? mod.get(modIndex) : 0;
 			}
 			return data.i;
@@ -286,7 +277,7 @@ $.fn.qrcode= function() {
 				[[2, 98, 78]],
 				[[2, 121, 97]],
 				[[2, 146, 116]],
-				[[2, 86, 68], [2, 87, 69]],
+				[[2, 86, 68], [2, 87, 69]]
 			],
 			0: [ // M
 				[[1, 26, 16]],
@@ -298,7 +289,7 @@ $.fn.qrcode= function() {
 				[[4, 49, 31]],
 				[[2, 60, 38], [2, 61, 39]],
 				[[3, 58, 36], [2, 59, 37]],
-				[[4, 69, 43], [1, 70, 44]],
+				[[4, 69, 43], [1, 70, 44]]
 			],
 			3: [ // Q
 				[[1, 26, 13]],
@@ -310,7 +301,7 @@ $.fn.qrcode= function() {
 				[[2, 32, 14], [4, 33, 15]],
 				[[4, 36, 16], [4, 37, 17]],
 				[[4, 40, 18], [2, 41, 19]],
-				[[6, 43, 19], [2, 44, 20]],
+				[[6, 43, 19], [2, 44, 20]]
 			],
 			2: [ // H
 				[[1, 26, 9]],
@@ -322,8 +313,8 @@ $.fn.qrcode= function() {
 				[[4, 39, 13], [1, 40, 14]],
 				[[4, 40, 14], [2, 41, 15]],
 				[[4, 36, 12], [4, 37, 13]],
-				[[6, 43, 15], [2, 44, 16]],
-			],
+				[[6, 43, 15], [2, 44, 16]]
+			]
 		}
 		var rs = blocks[errorlevel][type-1];
 		var list = [];
@@ -453,18 +444,6 @@ $.fn.qrcode= function() {
 					.write(this.junks[i].data);
 			}
 
-			/*var l = this.data.i;
-			var str = "";
-			this.data.p(0);
-			while(this.data.inbounds) {
-				str += this.data.get();
-				this.data.n();
-			}
-			console.log(str.substr(0,l));
-			if(this.data.i <= maxsize)
-				this.data.put(0, 4);*/
-
-
 			// padding
 			if(this.data.i % 8 != 0)
 				this.data.put(0, 8 - (size % 8));
@@ -475,7 +454,6 @@ $.fn.qrcode= function() {
 			}
 		},
 		rsblock : function() {
-			//console.log(this.data.bytes())
 			var rs = RSBlock.build(this.errorlevel, this.type);
 			var total = 0;
 			for(var i = 0; i < rs.length; i++) {
@@ -486,8 +464,6 @@ $.fn.qrcode= function() {
 			var maxec = 0;
 			var dcdata = []
 			for(var i = 0; i < rs.length; i++) {
-				//for(var i in rs[i])
-				//	console.log(i)
 				offset = rs[i].correct(offset, this.data);
 				maxdc = Math.max(maxdc, rs[i].datacnt);
 				maxec = Math.max(maxec, rs[i].eccnt);
@@ -510,43 +486,14 @@ $.fn.qrcode= function() {
 					}
 				}
 			}
-			console.log(this.data.bytes())
-
-			/*for (var r = 0; r < rs.length; r++) {
-				raw.write(rs[r].data)
-			}
-			console.log(raw.bytes())
-
-			for (var r = 0; r < rs.length; r++) {
-				for (var i = 0; i < maxec; i++) {
-					if (i < rs[r].data.length) {
-						raw.put(rs[r].ecdata[i], 8)
-					}
-				}
-			}*/
-			//console.log(this.data.bytes())
 		},
 
 		drawcode : function() {
-			console.log(this.data.bytes());
 			var y = this.size - 1;
-			var dump = "";
 			this.data.p(0)
-			while(this.data.inbounds) {
-				dump += this.data.get();
-				this.data.n();
-			}
-			this.data.p(0)
-			//var __choords;
-			__choords = []
 			var setpx = function(t,x,y) {
 				if(!t.image.p(x,y).ismasked()) {
 					var v = t.data.get();
-					if(t.maskpatterns[t.mask](y,x) != t.maskpatterns[t.mask](x,y)) {
-						console.log(t.maskpatterns[t.mask])
-						console.log(x + " " + y);
-					}
-					
 					if(t.maskpatterns[t.mask](x,y))
 						v = !v;
 					t.image.set(v);
@@ -569,10 +516,6 @@ $.fn.qrcode= function() {
 			var row = this.moduleCount - 1;
 			var bitIndex = 7;
 			var byteIndex = 0;
-			console.log(dump);
-			$('body').append('<br>');
-			$('body').append(dump);
-			$('body').append('<br>');
 		},
 		typelength: function(mode) {
 			if (this.type < 10) {
@@ -619,7 +562,7 @@ $.fn.qrcode= function() {
 			function(x,y) { return (Math.floor(x / 3) + Math.floor(y / 2) ) % 2 == 0; },
 			function(x,y) { return (x * y) % 2 + (x * y) % 3 == 0; },
 			function(x,y) { return ( (x * y) % 2 + (x * y) % 3) % 2 == 0; },
-			function(x,y) { return ( (x * y) % 3 + (x + y) % 2) % 2 == 0; },
+			function(x,y) { return ( (x * y) % 3 + (x + y) % 2) % 2 == 0; }
 		]
 	}
 
@@ -659,14 +602,18 @@ $.fn.qrcode= function() {
 			text += "\n"
 		}
 	}
+	var text = arguments.length > 0 ? arguments[0] : obj.text();
+	var width = arguments.length > 1 ? arguments[1] : 200;
+	var height = arguments.length > 2 ? arguments[3] : 200;
 
-	var qrcode = new QRCode('H',4);
-	qrcode.add8bittext(text);
-	qrcode.create(4);
-	
-	var drawer = new CanvasDrawer(qrcode.image, obj, 2);
-	//var drawer = new TextDrawer(qrcode.image, [" "]);
-	drawer.draw();
-	
+	$(this).each(function() {
+		var qrcode = new QRCode('H',4);
+		qrcode.add8bittext(text);
+		qrcode.create(4);
+		
+		var drawer = new CanvasDrawer(qrcode.image, $(this), 2);
+		//var drawer = new TextDrawer(qrcode.image, [" "]);
+		drawer.draw();
+	});
   };
 })( jQuery );
