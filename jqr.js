@@ -1,3 +1,4 @@
+var __choords2 = [];
 (function( $ ){
 $.fn.qrcode= function() {
 	var Math2 = {
@@ -229,41 +230,8 @@ $.fn.qrcode= function() {
 		}
 	}
 
-	var RSBlock = function(count, totalcnt, datacnt) {
-		this.count = count
-		this.datacnt = datacnt;
-		this.totalcnt = totalcnt;
-		this.eccnt = totalcnt - datacnt;
-
-		this.ecdata = null;
-		this.data = null;
-	}
-	RSBlock.prototype = {
-		correct : function(offset, data) {
-			this.data = new Bitarray(this.datacnt * 8)
-			data.p(offset);
-			while(data.inbounds && this.data.inbounds) {
-				this.data.set(data.get())
-					.n();
-				data.n();
-			}
-			var rs = new Polynomial([1], 0);
-			for(var i = 0; i < this.eccnt; i++) {
-				rs = rs.multiply(
-						new Polynomial([1, Math2.exp(i)], 0));
-			}
-			var raw = new Polynomial(this.data.bytes(), rs.length - 1);
-			var mod = raw.mod(rs);
-			this.ecdata = new Array(rs.length - 1);
-			for(var i = 0; i < this.ecdata.length; i++) {
-				var modIndex = i + mod.length - this.ecdata.length;
-				this.ecdata[i] = (modIndex >= 0)? mod.get(modIndex) : 0;
-			}
-			return data.i;
-		}
-	}
-	RSBlock.build = function(errorlevel, type) {
-		var blocks = {
+	var RSBlock = function(data, errorlevel) {
+		var tables = {
 			1 : [ // L
 				[[1, 26, 19]],
 				[[1, 44, 34]],
@@ -313,24 +281,92 @@ $.fn.qrcode= function() {
 				[[6, 43, 15], [2, 44, 16]]
 			]
 		}
-		var rs = blocks[errorlevel][type-1];
-		var list = [];
-		for(var i = 0; i < rs.length; i++) {
-			for(var j = 0; j < rs[i][0];j++) {
-				list.push(new RSBlock(rs[i][0],rs[i][1],rs[i][2]))
+		this.errorlevel = errorlevel;
+		this.table = tables[errorlevel];
+		this.data = data;
+		this.rsblocks = null;
+
+		this.ecdata = null;
+		this.maxsize = 0;
+		this.type = 0;
+	}
+	RSBlock.prototype = {
+		findtype : function() {
+			if(this.type != 0)
+				return this.type;
+			this.type = 0;
+			for(var i = 0; i < this.table.length; i++) {
+				var maxsize = 0;
+				for(var j = 0; j < this.table[i].length; j++) {
+					maxsize += this.table[i][j][1] * this.table[i][j][0];
+				}
+				if(this.data.length < maxsize) {
+					this.maxsize = maxsize;
+					this.rsblocks = this.table[this.type-1];
+					return this.type;
+				}
+				else
+					this.type = i + 1;
 			}
+			return 0;
+		},
+		build : function() {
+			var databytes = this.data.bytes();
+			var totalsize = 0;
+			var datasize = 0
+			this.rsblockcnt = 0;
+			this.findtype();
+			this.findtype();
+			for(var i = 0; i < this.rsblocks.length; i++) {
+				totalsize += this.rsblocks[i][1] * this.rsblocks[i][0];
+
+				datasize += this.rsblocks[i][2] * this.rsblocks[i][0]
+				this.rsblockcnt += this.rsblocks[i][0];
+			}
+			for(var i = 0; datasize != databytes.length;i++) {
+				databytes.push(i % 2 == 0 ? 0xEC : 0x11);
+			}
+			var slices = [];
+			for(var i = 0; i < this.rsblocks.length; i++) {
+				var count = this.rsblocks[i][0]
+				var totalcnt = this.rsblocks[i][1]
+				var datacnt = this.rsblocks[i][2]
+				for(var j = 0; j < count;j++) {
+					slices.push(this.correct(totalcnt - datacnt,
+								databytes.splice(0, this.rsblocks[i][2])));
+				}
+			}
+			var output = new Bitarray(totalsize * 8);
+			for(var i = 0; i < totalsize; i++) {
+				for(var j = 0; j < slices.length; j++) {
+					if (i < slices[j].length)
+						output.put(slices[j][i], 8);
+				}
+			}
+
+			return output;
+		},
+		correct : function(eccnt, slice) {
+			var arr = new Bitarray((slice.length + eccnt) * 8);
+			for(var i = 0; i < slice.length; i++) {
+				arr.put(slice[i],8);
+			}
+			var rs = new Polynomial([1], 0);
+			for(var i = 0; i < eccnt; i++) {
+				rs = rs.multiply(
+						new Polynomial([1, Math2.exp(i)], 0));
+			}
+			var raw = new Polynomial(slice, rs.length - 1);
+			var mod = raw.mod(rs);
+			for(var i = 0; arr.inbounds; i++) {
+				var modIndex = i + mod.length - (rs.length - 1);
+				arr.put((modIndex >= 0)? mod.get(modIndex) : 0, 8);
+			}
+			return arr.bytes();
 		}
-		return list;
 	}
 	var QRCode = function(errorlevel, mask) {
-		var errorlevels = {
-			'L':1, // Low (7%)
-			'M':0, // Middle (15%)
-			'Q':3, // Normal (25%)
-			'H':2  // High (30%)
-		}
 		this.type = 0;
-		this.errorlevel = errorlevels[errorlevel];
 		this.posFigure = figureFactory(
 			"         ",
 			" xxxxxxx ",
@@ -349,12 +385,66 @@ $.fn.qrcode= function() {
 			"x   x",
 			"xxxxx"
 			);
-		this.mask = mask;
+		this.mask = 4;
 		this.image = null;
 		this.junks = [];
 		this.data = null
 	}
 	QRCode.prototype = {
+		drawalign : function() {
+			var pos = [
+				[],
+				[6, 18],
+				[6, 22],
+				[6, 26],
+				[6, 30],
+				[6, 34],
+				[6, 22, 38],
+				[6, 24, 42],
+				[6, 26, 46],
+				[6, 28, 50],
+				[6, 30, 54],
+				[6, 32, 58],
+				[6, 34, 62],
+				[6, 26, 46, 66],
+				[6, 26, 48, 70],
+				[6, 26, 50, 74],
+				[6, 30, 54, 78],
+				[6, 30, 56, 82],
+				[6, 30, 58, 86],
+				[6, 34, 62, 90],
+				[6, 28, 50, 72, 94],
+				[6, 26, 50, 74, 98],
+				[6, 30, 54, 78, 102],
+				[6, 28, 54, 80, 106],
+				[6, 32, 58, 84, 110],
+				[6, 30, 58, 86, 114],
+				[6, 34, 62, 90, 118],
+				[6, 26, 50, 74, 98, 122],
+				[6, 30, 54, 78, 102, 126],
+				[6, 26, 52, 78, 104, 130],
+				[6, 30, 56, 82, 108, 134],
+				[6, 34, 60, 86, 112, 138],
+				[6, 30, 58, 86, 114, 142],
+				[6, 34, 62, 90, 118, 146],
+				[6, 30, 54, 78, 102, 126, 150],
+				[6, 24, 50, 76, 102, 128, 154],
+				[6, 28, 54, 80, 106, 132, 158],
+				[6, 32, 58, 84, 110, 136, 162],
+				[6, 26, 54, 82, 110, 138, 166],
+				[6, 30, 58, 86, 114, 142, 170]
+			][this.type-1];
+			for(var i = 0; i < pos.length; i++) {
+				for(var j = 0; j < pos.length; j++) {
+					if(((i == 0 || j == 0) && (i == pos.length - 1 || j == pos.length - 1)) || (i == 0 && j == 0))
+						continue;
+					var x = pos[i] - 2;
+					var y = pos[j] - 2;
+					this.image.p(x,y)
+						.merge(this.alignFigure);
+				}
+			}
+		},
 		drawstatic : function() {
 			// Left Top
 			this.image.p(-1,-1).merge(this.posFigure);
@@ -365,9 +455,10 @@ $.fn.qrcode= function() {
 			this.image.p(-1, this.size-this.posFigure.height+1)
 				.merge(this.posFigure);
 			// Alignment
-			this.image.p(this.size-4-this.alignFigure.width,
+			/*this.image.p(this.size-4-this.alignFigure.width,
 					this.size-4-this.alignFigure.width)
-				.merge(this.alignFigure);
+				.merge(this.alignFigure);*/
+			this.drawalign();
 			// Horizontal
 			drawTiming(this.image, 8, 6, this.size-this.posFigure.height, 6);
 			// Vertical
@@ -419,69 +510,17 @@ $.fn.qrcode= function() {
 			this.junks.push({data: data, mode: 1<<2})
 		},
 		joinjunks : function() {
-			var rs = RSBlock.build(this.errorlevel, this.type);
 			var size = 0;
-			for(var i = 0; i < this.junks.length; i++)
-				size += 4 + this.junks[i].data.length;
-			var maxsize = 0;
-			for(var i = 0; i < rs.length; i++) {
-				maxsize += rs[i].datacnt * 8;
+			for(var i = 0; i < this.junks.length; i++) {
+				size += 4 + this.junks[i].data.length + this.typelength(this.junks[i].mode);
 			}
-			if(size > maxsize) {
-				alert("too much data!");
-				return;
-			}
-
-			this.data = new Bitarray(maxsize);
+			this.data = new Bitarray(size);
 			for(var i = 0; i < this.junks.length; i++) {
 				this.data
 					.put(this.junks[i].mode, 4)
 					.put(this.junks[i].data.length/8,
 						this.typelength(this.junks[i].mode))
 					.write(this.junks[i].data);
-			}
-
-			// padding
-			if(this.data.i % 8 != 0)
-				this.data.put(0, 8 - (size % 8));
-			
-			while(this.data.i < maxsize) {
-				this.data.put(0xEC, 8)
-					.put(0x11,8)
-			}
-		},
-		rsblock : function() {
-			var rs = RSBlock.build(this.errorlevel, this.type);
-			var total = 0;
-			for(var i = 0; i < rs.length; i++) {
-				total += rs[i].totalcnt;
-			}
-			var offset = 0;
-			var maxdc = 0;
-			var maxec = 0;
-			var dcdata = []
-			for(var i = 0; i < rs.length; i++) {
-				offset = rs[i].correct(offset, this.data);
-				maxdc = Math.max(maxdc, rs[i].datacnt);
-				maxec = Math.max(maxec, rs[i].eccnt);
-				dcdata.push(rs[i].data.bytes());
-			}
-
-
-			this.data = new Bitarray(8 * total);
-			for (var i = 0; i < maxdc; i++) {
-				for (var r = 0; r < rs.length; r++) {
-					if (i < dcdata[r].length) {
-						this.data.put(dcdata[r][i],8);
-					}
-				}
-			}
-			for (var i = 0; i < maxec; i++) {
-				for (var r = 0; r < rs.length; r++) {
-					if (i < rs[r].ecdata.length) {
-						this.data.put(rs[r].ecdata[i],8);
-					}
-				}
 			}
 		},
 
@@ -490,6 +529,7 @@ $.fn.qrcode= function() {
 			this.data.p(0)
 			var setpx = function(t,x,y) {
 				if(!t.image.p(x,y).ismasked()) {
+					__choords2.push(x,y);
 					var v = t.data.get();
 					if(t.maskpatterns[t.mask](x,y))
 						v = !v;
@@ -497,16 +537,15 @@ $.fn.qrcode= function() {
 					t.data.n();
 				}
 			}
+			var up = false
 			for(var x = this.size - 1; x >= 0; x -= 2) {
-				for(var y = this.size - 1; y >= 0; y--) {
-					setpx(this,x,y);
-					setpx(this,x-1,y);
-				}
-				x-=2;
+				if(x == 6)
+					x = 5;
 				for(var y = 0; y < this.size; y++) {
-					setpx(this,x,y);
-					setpx(this,x-1,y);
+					setpx(this,x, up ? y : this.size - 1 - y);
+					setpx(this,x-1, up ? y : this.size - 1 - y);
 				}
+				up = !up;
 			}
 
 			var inc = -1;
@@ -538,18 +577,34 @@ $.fn.qrcode= function() {
 				}
 			}
 		},
-		create : function(type) {
-			this.type = type;
-			this.size = type * 4 + 17;
+		create : function(errorlevel) {
+			this.maske = 4; // TODO
+			var errorlevels = {
+				'L':1, // Low (7%)
+				'M':0, // Middle (15%)
+				'Q':3, // Normal (25%)
+				'H':2  // High (30%)
+			}
+			this.errorlevel = errorlevels[errorlevel];
+			this.joinjunks();
+			this.rsblock();
+			
+			//return;
 			this.image = new Bitmap(this.size, this.size);
 			this.drawstatic();
 			this.drawtype();
-			if(type >= 7) {
+			if(this.type >= 7) {
 				this.drawtypenumber()
 			}
-			this.joinjunks();
-			this.rsblock();
 			this.drawcode();
+		},
+		rsblock : function() {
+			var rs = new RSBlock(this.data, this.errorlevel, this.data);
+			this.type = rs.findtype();
+			console.log(this.type)
+			this.size = this.type * 4 + 17;
+			this.data = rs.build();
+			console.log("bar "+this.data.bytes());
 		},
 		maskpatterns: [
 			function(x,y) { return (x + y) % 2 == 0; },
@@ -604,9 +659,9 @@ $.fn.qrcode= function() {
 	var height = arguments.length > 2 ? arguments[3] : 200;
 
 	$(this).each(function() {
-		var qrcode = new QRCode('H',4);
+		var qrcode = new QRCode();
 		qrcode.add8bittext(text);
-		qrcode.create(4);
+		qrcode.create('H');
 		
 		var drawer = new CanvasDrawer(qrcode.image, $(this), 2);
 		//var drawer = new TextDrawer(qrcode.image, [" "]);
