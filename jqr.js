@@ -316,7 +316,6 @@ $.fn.qrcode= function() {
 			var datasize = 0
 			this.rsblockcnt = 0;
 			this.findtype();
-			this.findtype();
 			for(var i = 0; i < this.rsblocks.length; i++) {
 				totalsize += this.rsblocks[i][1] * this.rsblocks[i][0];
 
@@ -352,12 +351,11 @@ $.fn.qrcode= function() {
 				arr.put(slice[i],8);
 			}
 			var rs = new Polynomial([1], 0);
-			for(var i = 0; i < eccnt; i++) {
-				rs = rs.multiply(
-						new Polynomial([1, Math2.exp(i)], 0));
-			}
+			for(var i = 0; i < eccnt; i++)
+				rs = rs.multiply(new Polynomial([1, Math2.exp(i)], 0));
 			var raw = new Polynomial(slice, rs.length - 1);
 			var mod = raw.mod(rs);
+			console.log(eccnt)
 			for(var i = 0; arr.inbounds; i++) {
 				var modIndex = i + mod.length - (rs.length - 1);
 				arr.put((modIndex >= 0)? mod.get(modIndex) : 0, 8);
@@ -589,7 +587,6 @@ $.fn.qrcode= function() {
 			this.joinjunks();
 			this.rsblock();
 			
-			//return;
 			this.image = new Bitmap(this.size, this.size);
 			this.drawstatic();
 			this.drawtype();
@@ -601,10 +598,8 @@ $.fn.qrcode= function() {
 		rsblock : function() {
 			var rs = new RSBlock(this.data, this.errorlevel, this.data);
 			this.type = rs.findtype();
-			console.log(this.type)
 			this.size = this.type * 4 + 17;
 			this.data = rs.build();
-			console.log("bar "+this.data.bytes());
 		},
 		maskpatterns: [
 			function(x,y) { return (x + y) % 2 == 0; },
