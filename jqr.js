@@ -131,13 +131,16 @@ $.fn.qrcode= function() {
 		},
 		bytes : function() {
 			var tmp = new Array(Math.ceil(this.length / 8));
+			var sav = this.i;
 			this.p(0);
+			
 			for(var i = 0; i < tmp.length; i++) {
 				for(var b = 0; b < 8; b++) {
 					tmp[i] |= (this.get()) << (7 - b);
 					this.n();
 				}
 			}
+			this.p(sav);
 			return tmp;
 		}
 	}
@@ -301,6 +304,8 @@ $.fn.qrcode= function() {
 					maxsize += this.table[i][j][1] * this.table[i][j][0];
 				}
 				if(this.data.length < maxsize) {
+					if(this.type == 0)
+						this.type = 1;
 					this.maxsize = maxsize;
 					this.rsblocks = this.table[this.type-1];
 					return this.type;
@@ -322,45 +327,48 @@ $.fn.qrcode= function() {
 				datasize += this.rsblocks[i][2] * this.rsblocks[i][0]
 				this.rsblockcnt += this.rsblocks[i][0];
 			}
-			for(var i = 0; datasize != databytes.length;i++) {
+			for(var i = 0; datasize > databytes.length;i++) {
 				databytes.push(i % 2 == 0 ? 0xEC : 0x11);
 			}
-			var slices = [];
+			var datas = [];
+			var checks = []
 			for(var i = 0; i < this.rsblocks.length; i++) {
-				var count = this.rsblocks[i][0]
-				var totalcnt = this.rsblocks[i][1]
-				var datacnt = this.rsblocks[i][2]
+				var count = this.rsblocks[i][0];
+				var totalcnt = this.rsblocks[i][1];
+				var datacnt = this.rsblocks[i][2];
 				for(var j = 0; j < count;j++) {
-					slices.push(this.correct(totalcnt - datacnt,
-								databytes.splice(0, this.rsblocks[i][2])));
+					var data = databytes.splice(0, datacnt);
+					datas.push(data)
+					checks.push(this.correct(totalcnt - datacnt, data));
 				}
 			}
 			var output = new Bitarray(totalsize * 8);
-			for(var i = 0; i < totalsize; i++) {
-				for(var j = 0; j < slices.length; j++) {
-					if (i < slices[j].length)
-						output.put(slices[j][i], 8);
+			for(var i = 0; i < datasize; i++) {
+				for(var j = 0; j < datas.length; j++) {
+					if (i < datas[j].length)
+						output.put(datas[j][i], 8);
 				}
 			}
-
+			for(var i = 0; i < totalsize - datasize; i++) {
+				for(var j = 0; j < checks.length; j++) {
+					if (i < checks[j].length)
+						output.put(checks[j][i], 8);
+				}
+			}
 			return output;
 		},
 		correct : function(eccnt, slice) {
-			var arr = new Bitarray((slice.length + eccnt) * 8);
-			for(var i = 0; i < slice.length; i++) {
-				arr.put(slice[i],8);
-			}
 			var rs = new Polynomial([1], 0);
 			for(var i = 0; i < eccnt; i++)
 				rs = rs.multiply(new Polynomial([1, Math2.exp(i)], 0));
 			var raw = new Polynomial(slice, rs.length - 1);
 			var mod = raw.mod(rs);
-			console.log(eccnt)
-			for(var i = 0; arr.inbounds; i++) {
+			var check = [];
+			for(var i = 0; i < rs.length - 1; i++) {
 				var modIndex = i + mod.length - (rs.length - 1);
-				arr.put((modIndex >= 0)? mod.get(modIndex) : 0, 8);
+				check.push((modIndex >= 0)? mod.get(modIndex) : 0);
 			}
-			return arr.bytes();
+			return check;
 		}
 	}
 	var QRCode = function(errorlevel, mask) {

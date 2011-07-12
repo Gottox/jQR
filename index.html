@@ -2,17 +2,67 @@
 <html>
 <head>
 <title>Title of the document</title>
+<script>
+	var __i = 0;
+	var __type = 5;
+	var str = "xxxxxxxxxxxxxxxxx"
+</script>
 <script src="jquery.js" language="javascript"></script>
 <script language="javascript" src="jqr.js"></script>
 <script language="javascript">
 	$(document).ready(function() {
-		var f = function() { $('#qrcode').qrcode($(this).val()); }
-		$('#value').change(f).keypress(f).keydown(f).keyup();
+		$('#qrcode').qrcode(str);
+		$('#qrcode2').qrcode(str);
+		/*while(__choords2.length) {
+			(function(x,y,i) {
+			setTimeout(function() {
+				var e = $('table tr:nth-child('+(y+1)+') td:nth-child('+(x+1)+')');
+				e.css("background-color", "red");
+				//e.text("f");
+			}, i*10) })(__choords2.shift(), __choords2.shift(), __i);
+			__i++;
+		}*/
 	});
 </script>
+<style>
+	body > table, #qrcode {
+		position:absolute;
+		left:0;
+		top:0;
+	}
+</style>
+<script language="javascript" src="js/qrcode.js"></script>
+<script language="javascript" src="js/sample.js"></script>
 </head>
 <body>
-Text: <input id="value">
+<script>
+draw_qrcode(str, 1);
+/*while(__choords.length) {
+	(function(x,y,i) {
+	setTimeout(function() {
+		var e = $('table tr:nth-child('+(y+1)+') td:nth-child('+(x+1)+')');
+		e.css("background-color", "green");
+		//e.text("f");
+	}, i*10) })(__choords.shift(), __choords.shift(), __i);
+	__i++;
+}*/
+</script>
 <div id="qrcode"></div>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<div>
+<script>
+draw_qrcode(str);
+</script>
+<br>
+<div id="qrcode2"></div>
+</div>
+Text: <input id="value">
 </body>
 </html>
