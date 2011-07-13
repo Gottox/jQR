@@ -1,29 +1,36 @@
-var __choords2 = [];
+//---------------------------------------------------------------------
+// QRCode for JQuery
+//
+// Copyright (c) 2011 Enno Boland
+//
+// This work uses some snippets from Kazuhiko Arase QRCode
+// implementation (such as some value tables an the Math classes)
+//
+// Licensed under GPL3:
+//   http://www.opensource.org/licenses/GPL-3.0
+//
+// The word "QR Code" is registered trademark of 
+// DENSO WAVE INCORPORATED
+//   http://www.denso-wave.com/qrcode/faqpatent-e.html
+//
+//---------------------------------------------------------------------
 (function( $ ){
 $.fn.qrcode= function() {
 	var Math2 = {
 		log : function(n) {
-		
-			if (n < 1) {
-				throw new Error("glog(" + n + ")");
-			}
-			
 			return Math2.LOG_TABLE[n];
 		},
 		exp : function(n) {
 			while (n < 0) {
 				n += 255;
 			}
-		
 			while (n >= 256) {
 				n -= 255;
 			}
-		
 			return Math2.EXP_TABLE[n];
 		},
 		EXP_TABLE : [],
 		LOG_TABLE : []
-
 	};
 	for (var i = 0; i < 8; i++) {
 		Math2.EXP_TABLE[i] = 1 << i;
@@ -391,13 +398,12 @@ $.fn.qrcode= function() {
 			"x   x",
 			"xxxxx"
 			);
-		this.mask = 4;
-		this.image = null;
 		this.junks = [];
-		this.data = null
+		this.data = null;
+		this.image = null;
 	}
 	QRCode.prototype = {
-		drawalign : function() {
+		drawalign : function(image) {
 			var pos = [
 				[],
 				[6, 18],
@@ -446,29 +452,29 @@ $.fn.qrcode= function() {
 						continue;
 					var x = pos[i] - 2;
 					var y = pos[j] - 2;
-					this.image.p(x,y)
+					image.p(x,y)
 						.merge(this.alignFigure);
 				}
 			}
 		},
-		drawstatic : function() {
+		drawstatic : function(image) {
 			// Left Top
-			this.image.p(-1,-1).merge(this.posFigure);
+			image.p(-1,-1).merge(this.posFigure);
 			// Right Top
-			this.image.p(this.size-this.posFigure.width+1, -1)
+			image.p(this.size-this.posFigure.width+1, -1)
 				.merge(this.posFigure);
 			// Left Bottom
-			this.image.p(-1, this.size-this.posFigure.height+1)
+			image.p(-1, this.size-this.posFigure.height+1)
 				.merge(this.posFigure);
 			// Alignment
-			/*this.image.p(this.size-4-this.alignFigure.width,
+			/*image.p(this.size-4-this.alignFigure.width,
 					this.size-4-this.alignFigure.width)
 				.merge(this.alignFigure);*/
-			this.drawalign();
+			this.drawalign(image);
 			// Horizontal
-			drawTiming(this.image, 8, 6, this.size-this.posFigure.height, 6);
+			drawTiming(image, 8, 6, this.size-this.posFigure.height, 6);
 			// Vertical
-			drawTiming(this.image, 6, 8, 6, this.size-this.posFigure.height);
+			drawTiming(image, 6, 8, 6, this.size-this.posFigure.height);
 		},
 		drawtypenumber : function() {
 			var g18 = parseInt("1111100100101", 2);
@@ -476,12 +482,12 @@ $.fn.qrcode= function() {
 			
 			for (var i = 0; i < 18; i++) {
 				var mod = (( (data >> i) & 1) == 1);
-				this.image.p(i % 3 + this.size - 8 - 3,Math.floor(i / 3)).set(mod);
-				this.image.p(Math.floor(i / 3),i % 3 + this.size - 8 - 3).set(mod);
+				image.p(i % 3 + this.size - 8 - 3,Math.floor(i / 3)).set(mod);
+				image.p(Math.floor(i / 3),i % 3 + this.size - 8 - 3).set(mod);
 			}
 		},
-		drawtype : function() {
-			var data = (this.errorlevel << 3) | this.mask;
+		drawtype : function(image, mask) {
+			var data = (this.errorlevel << 3) | mask;
 			var g15 = parseInt("10100110111", 2);
 			var mask = parseInt("101010000010010", 2);
 			data = bch(data, g15) ^ mask;
@@ -497,7 +503,7 @@ $.fn.qrcode= function() {
 				.put(1,1, true)
 				.put(data >>> 8, 7, true);
 
-			this.image.p(8,0).merge(vertical.rotate());
+			image.p(8,0).merge(vertical.rotate());
 
 			var horizontal = new Bitmap(this.size, 1);
 			horizontal.put(data, 8, true)
@@ -506,7 +512,7 @@ $.fn.qrcode= function() {
 				.put(1, 1)
 				.put(data >>> 9, 6,true)
 
-			this.image.p(0,8).merge(horizontal.rotate().rotate());
+			image.p(0,8).merge(horizontal.rotate().rotate());
 		},
 		add8bittext : function(text) {
 			var data = new Bitarray(text.length * 8);
@@ -530,17 +536,16 @@ $.fn.qrcode= function() {
 			}
 		},
 
-		drawcode : function() {
+		drawcode : function(image, mask) {
 			var y = this.size - 1;
 			this.data.p(0)
-			var setpx = function(t,x,y) {
-				if(!t.image.p(x,y).ismasked()) {
-					__choords2.push(x,y);
-					var v = t.data.get();
-					if(t.maskpatterns[t.mask](x,y))
+			var setpx = function(i,d,x,y) {
+				if(!i.p(x,y).ismasked()) {
+					var v = d.get();
+					if(mask(x,y))
 						v = !v;
-					t.image.set(v);
-					t.data.n();
+					i.set(v);
+					d.n();
 				}
 			}
 			var up = false
@@ -548,16 +553,11 @@ $.fn.qrcode= function() {
 				if(x == 6)
 					x = 5;
 				for(var y = 0; y < this.size; y++) {
-					setpx(this,x, up ? y : this.size - 1 - y);
-					setpx(this,x-1, up ? y : this.size - 1 - y);
+					setpx(image,this.data,x, up ? y : this.size - 1 - y);
+					setpx(image,this.data,x-1, up ? y : this.size - 1 - y);
 				}
 				up = !up;
 			}
-
-			var inc = -1;
-			var row = this.moduleCount - 1;
-			var bitIndex = 7;
-			var byteIndex = 0;
 		},
 		typelength: function(mode) {
 			if (this.type < 10) {
@@ -584,7 +584,6 @@ $.fn.qrcode= function() {
 			}
 		},
 		create : function(errorlevel) {
-			this.maske = 4; // TODO
 			var errorlevels = {
 				'L':1, // Low (7%)
 				'M':0, // Middle (15%)
@@ -595,13 +594,135 @@ $.fn.qrcode= function() {
 			this.joinjunks();
 			this.rsblock();
 			
-			this.image = new Bitmap(this.size, this.size);
-			this.drawstatic();
-			this.drawtype();
-			if(this.type >= 7) {
-				this.drawtypenumber()
+			var minscore = -1;
+			for(var i = 0; i < this.maskpatterns.length; i++) {
+				var image = new Bitmap(this.size, this.size);
+				this.drawstatic(image);
+				this.drawtype(image, i);
+				if(this.type >= 7) {
+					this.drawtypenumber(image)
+				}
+				this.drawcode(image, this.maskpatterns[i]);
+				var score = this.scoreImage(image);
+				if(minscore == -1 || minscore > score) {
+					this.image = image;
+					minscore = score;
+				}
 			}
-			this.drawcode();
+		},
+		scoreImage : function(image) {
+			var lostPoint = 0;
+
+			// LEVEL1: 
+			// x = pixel
+			// 1-8 testing
+			// 123
+			// 4x5
+			// 678
+			// If there are more than 5 pixels found, add at last three
+
+			for (var y = 0; y < this.size; y++) {
+				for (var x = 0; x < this.size; x++) {
+					var sameCount = 0;
+					var dark = image.p(x, y).get();
+					for (var r = -1; r <= 1; r++) {
+						if (y + r < 0 || this.size <= y + r) {
+							continue;
+						}
+						for (var c = -1; c <= 1; c++) {
+							if (x + c < 0 || this.size <= x + c) {
+								continue;
+							}
+							if (r == 0 && c == 0) {
+								continue;
+							}
+							if (dark == image.p(x + c, y + r).get()) {
+								sameCount++;
+							}
+						}
+					}
+
+					if (sameCount > 5) {
+						lostPoint += (3 + sameCount - 5);
+					}
+				}
+			}
+
+			// LEVEL2:
+			// Testing for larger whitespaces or blackareas
+			// 13
+			// 24
+
+			for (var y = 0; y < this.size - 1; y++) {
+				for (var x = 0; x < this.size - 1; x++) {
+					var count = 0;
+					if (image.p(x,     y    ).get() ) count++;
+					if (image.p(x + 1, y    ).get() ) count++;
+					if (image.p(x,     y + 1).get() ) count++;
+					if (image.p(x + 1, y + 1).get() ) count++;
+					if (count == 0 || count == 4) {
+						lostPoint += 3;
+					}
+				}
+			}
+
+			// LEVEL3
+			// Testing for pattern:
+			// X_XXX_X
+			// and
+			// X
+			// _
+			// X
+			// X
+			// X
+			// _
+			// X
+
+			for (var y = 0; y < this.size; y++) {
+				for (var x = 0; x < this.size - 6; x++) {
+					if (image.p(y, x).get()
+							&& !image.p(x, y + 1).get()
+							&&  image.p(x, y + 2).get()
+							&&  image.p(x, y + 3).get()
+							&&  image.p(x, y + 4).get()
+							&& !image.p(x, y + 5).get()
+							&&  image.p(x, y + 6).get() ) {
+						lostPoint += 40;
+					}
+				}
+			}
+
+			for (var x = 0; x < this.size; x++) {
+				for (var y = 0; y < this.size - 6; y++) {
+					if (image.p(y, x)
+							&& !image.p(x + 1, y).get()
+							&&  image.p(x + 2, y).get()
+							&&  image.p(x + 3, y).get()
+							&&  image.p(x + 4, y).get()
+							&& !image.p(x + 5, y).get()
+							&&  image.p(x + 6, y).get() ) {
+						lostPoint += 40;
+					}
+				}
+			}
+
+			// LEVEL4
+			// Testing for ratio between dark and light pixels
+
+			var darkCount = 0;
+
+			for (var x = 0; x < this.size; x++) {
+				for (var y = 0; y < this.size; y++) {
+					if (image.p(x, y).get ) {
+						darkCount++;
+					}
+				}
+			}
+
+			var ratio = Math.abs(100 * darkCount / this.size / this.size - 50) / 5;
+			lostPoint += ratio * 10;
+
+			return lostPoint;
 		},
 		rsblock : function() {
 			var rs = new RSBlock(this.data, this.errorlevel, this.data);
