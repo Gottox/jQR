@@ -16,6 +16,13 @@
 //---------------------------------------------------------------------
 (function( $ ){
 $.fn.qrcode= function() {
+	var options = {
+		width:-1,
+		heigth:-1,
+		size:1,
+		correction:'H',
+		type:-1
+	};
 	var Math2 = {
 		log : function(n) {
 			return Math2.LOG_TABLE[n];
@@ -242,6 +249,7 @@ $.fn.qrcode= function() {
 
 	var RSBlock = function(data, errorlevel) {
 		var tables = {
+			// iterations, maxsize
 			1 : [ // L
 				[[1, 26, 19]],
 				[[1, 44, 34]],
@@ -308,13 +316,14 @@ $.fn.qrcode= function() {
 			for(var i = 0; i < this.table.length; i++) {
 				var maxsize = 0;
 				for(var j = 0; j < this.table[i].length; j++) {
-					maxsize += this.table[i][j][1] * this.table[i][j][0];
+					maxsize += this.table[i][j][2] * this.table[i][j][0];
 				}
 				if(this.data.length < maxsize) {
 					if(this.type == 0)
 						this.type = 1;
 					this.maxsize = maxsize;
 					this.rsblocks = this.table[this.type-1];
+					alert(this.type+" "+this.data.length + " - " + maxsize);
 					return this.type;
 				}
 				else
@@ -779,15 +788,15 @@ $.fn.qrcode= function() {
 		}
 	}
 	var text = arguments.length > 0 ? arguments[0] : obj.text();
-	var width = arguments.length > 1 ? arguments[1] : 200;
-	var height = arguments.length > 2 ? arguments[3] : 200;
+	if(arguments.length > 1) for(var o in arguments[1])
+		options[o] = arguments[1][o];
 
 	$(this).each(function() {
 		var qrcode = new QRCode();
 		qrcode.add8bittext(text);
-		qrcode.create('H');
+		qrcode.create(options.correction);
 		
-		var drawer = new CanvasDrawer(qrcode.image, $(this), 2);
+		var drawer = new CanvasDrawer(qrcode.image, $(this), options.size);
 		//var drawer = new TextDrawer(qrcode.image, [" "]);
 		drawer.draw();
 	});

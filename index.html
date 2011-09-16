@@ -1,18 +1,19 @@
 <!DOCTYPE HTML>
 <html>
 <head>
-<title>Title of the document</title>
+<title>JQR - jquery qrcode</title>
 <script src="jquery.js" language="javascript"></script>
 <script language="javascript" src="jqr.js"></script>
 <script language="javascript">
 	$(document).ready(function() {
-		var f = function() { $('#qrcode').qrcode($(this).val()); }
-		$('#value').change(f).keypress(f).keydown(f).keyup();
+		var f = function() { $('#qrcode').qrcode($("#value").val(),
+			{correction:'L',size:2}); }
+		$('#button').click(f);
 	});
 </script>
 </head>
 <body>
-Text: <input id="value">
+	Text: <input id="value"> <input type="button" id="button" value="Gen">
 <br>
 <br>
 <br>
