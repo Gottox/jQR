@@ -323,7 +323,6 @@ $.fn.qrcode= function() {
 						this.type = 1;
 					this.maxsize = maxsize;
 					this.rsblocks = this.table[this.type-1];
-					alert(this.type+" "+this.data.length + " - " + maxsize);
 					return this.type;
 				}
 				else
