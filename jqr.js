@@ -15,212 +15,207 @@
 //
 //---------------------------------------------------------------------
 (function( $ ){
+var Math2 = {
+	log : function(n) {
+		return Math2.LOG_TABLE[n];
+	},
+	exp : function(n) {
+		n = ((n % 256) + 256) % 256;
+		return Math2.EXP_TABLE[n];
+	},
+	EXP_TABLE : [],
+	LOG_TABLE : []
+};
+var i;
+for (i = 0; i < 8; i++) {
+	Math2.EXP_TABLE[i] = 1 << i;
+}
+for (; i < 256; i++) {
+	Math2.EXP_TABLE[i] = Math2.EXP_TABLE[i - 4]
+		^ Math2.EXP_TABLE[i - 5]
+		^ Math2.EXP_TABLE[i - 6]
+		^ Math2.EXP_TABLE[i - 8];
+}
+for (i = 0; i < 255; i++) {
+	Math2.LOG_TABLE[Math2.EXP_TABLE[i]] = i;
+}
+
+var Polynomial = function(num, shift) {
+	var offset = 0;
+	while (offset < num.length && num[offset] == 0) {
+		offset++;
+	}
+	this.num = new Array(num.length - offset + shift);
+	for (var i = 0; i < num.length - offset; i++) {
+		this.num[i] = num[i + offset];
+	}
+	this.length = this.num.length;
+}
+Polynomial.prototype = {
+	get : function(index) {
+		return this.num[index];
+	},
+	multiply : function(e) {
+		var num = new Array(this.length + e.length - 1);
+		for (var i = 0; i < this.length; i++) {
+			for (var j = 0; j < e.length; j++) {
+				num[i + j] ^= Math2.exp(Math2.log(this.get(i) ) + Math2.log(e.get(j) ) );
+			}
+		}
+		return new Polynomial(num, 0);
+	},
+	mod : function(e) {
+		if (this.length - e.length < 0) {
+			return this;
+		}
+		var ratio = Math2.log(this.get(0) ) - Math2.log(e.get(0) );
+		var num = new Array(this.length);
+		for (var i = 0; i < this.length; i++) {
+			num[i] = this.get(i);
+		}
+		for (var i = 0; i < e.length; i++) {
+			num[i] ^= Math2.exp(Math2.log(e.get(i) ) + ratio);
+		}
+		// recursive call
+		return new Polynomial(num, 0).mod(e);
+	}
+};
+
+var Bitarray = function(l) {
+	this.length = l;
+	this.bits = (~0 >>> 1).toString(2).length + 1;
+	this.i = 0;
+	this.index = 0;
+	this.inbounds= true;
+	this.offset = 0;
+	this.array = new Array(Math.ceil(l / this.bits));
+}
+Bitarray.prototype = {
+	p : function(i) {
+		this.i = i;
+		this.inbounds = i < this.length;
+		this.index = Math.floor(i / this.bits);
+		this.offset = i % this.bits;
+		return this;
+	},
+	n : function() {
+		return this.p(this.i+1);
+	},
+	get : function() {
+		if(this.inbounds)
+			return (this.array[this.index] & (1 << this.offset)) ? 1 : 0;
+		else
+			return null;
+	},
+	set : function(v) {
+		if(this.inbounds) {
+			if(v)
+				this.array[this.index] |= (1 << this.offset);
+			else
+				this.array[this.index] &= ~(1 << this.offset);
+		}
+		return this;
+	},
+	put : function(v, l, r) {
+		for(var i = 0; i < l; i++){
+			this.set(((v >>> (r ? i : l-1-i)) & 1) == 1).n();
+		}
+		return this;
+	},
+	write : function(a) {
+		for(var i = 0; i < a.length && this.inbounds; i++)
+			this.set(a.p(i).get()).p(this.i + 1);
+		return this;
+	},
+	bytes : function() {
+		var tmp = new Array(Math.ceil(this.length / 8));
+		var sav = this.i;
+		this.p(0);
+		
+		for(var i = 0; i < tmp.length; i++) {
+			for(var b = 0; b < 8; b++) {
+				tmp[i] |= (this.get()) << (7 - b);
+				this.n();
+			}
+		}
+		this.p(sav);
+		return tmp;
+	}
+}
+
+var Bitmap = function(w, h) {
+	this.width = w;
+	this.height = h;
+	this.x = 0;
+	this.y = 0;
+	this.map = new Bitarray(w*h);
+	this.mask = new Bitarray(w*h);
+	this.inbounds = true;
+}
+Bitmap.prototype = {
+	p : function(x, y) {
+		this.x = x;
+		this.y = y;
+		this.map.p(y * this.width + x);
+		this.mask.p(y * this.width + x);
+		this.inbounds = this.map.inbounds;
+		return this;
+	},
+	n : function() {
+		return this.p(this.x+1,this.y);
+	},
+	set : function(v) {
+		this.mask.set(1);
+		this.map.set(v);
+		return this;
+	},
+	put : function(v, l, r) {
+		this.map.put(v, l, r);
+		this.mask.put(~0, l, r);
+		return this;
+	},
+	get: function() {
+		return this.map.get()
+	},
+	merge: function(map) {
+		var xs = this.x;
+		var ys = this.y;
+		for(var y = 0; y < map.height; y++) {
+			for(var x = 0; x < map.width; x++) {
+				if(xs+x < 0 || ys+y < 0 || xs+x >= this.width
+					|| ys+y >= this.height)
+					continue;
+				if(map.p(x,y).ismasked())
+					this.p(xs+x, ys+y)
+						.set(map.get());
+			}
+		}
+		return this;
+	},
+	ismasked : function() {
+		return this.mask.get();
+	},
+	rotate : function() {
+		map = new Bitmap(this.height, this.width)
+		for(var y = 0; y < this.height; y++)
+			for(var x = 0; x < this.width; x++) {
+				if(this.p(x, y).ismasked())
+					map.p(this.height-1-y,x).set(this.get());
+			}
+		return map;
+	}
+}
+
+
 $.fn.qrcode= function() {
 	var options = {
 		width:-1,
 		heigth:-1,
-		size:1,
+		size:2,
 		correction:'H',
 		type:-1
 	};
-	var Math2 = {
-		log : function(n) {
-			return Math2.LOG_TABLE[n];
-		},
-		exp : function(n) {
-			while (n < 0) {
-				n += 255;
-			}
-			while (n >= 256) {
-				n -= 255;
-			}
-			return Math2.EXP_TABLE[n];
-		},
-		EXP_TABLE : [],
-		LOG_TABLE : []
-	};
-	for (var i = 0; i < 8; i++) {
-		Math2.EXP_TABLE[i] = 1 << i;
-	}
-	for (var i = 8; i < 256; i++) {
-		Math2.EXP_TABLE[i] = Math2.EXP_TABLE[i - 4]
-			^ Math2.EXP_TABLE[i - 5]
-			^ Math2.EXP_TABLE[i - 6]
-			^ Math2.EXP_TABLE[i - 8];
-	}
-	for (var i = 0; i < 255; i++) {
-		Math2.LOG_TABLE[Math2.EXP_TABLE[i]] = i;
-	}
 
-	var Polynomial = function(num, shift) {
-		var offset = 0;
-		while (offset < num.length && num[offset] == 0) {
-			offset++;
-		}
-		this.num = new Array(num.length - offset + shift);
-		for (var i = 0; i < num.length - offset; i++) {
-			this.num[i] = num[i + offset];
-		}
-		this.length = this.num.length;
-	}
-	Polynomial.prototype = {
-		get : function(index) {
-			return this.num[index];
-		},
-		multiply : function(e) {
-			var num = new Array(this.length + e.length - 1);
-			for (var i = 0; i < this.length; i++) {
-				for (var j = 0; j < e.length; j++) {
-					num[i + j] ^= Math2.exp(Math2.log(this.get(i) ) + Math2.log(e.get(j) ) );
-				}
-			}
-			return new Polynomial(num, 0);
-		},
-		mod : function(e) {
-			if (this.length - e.length < 0) {
-				return this;
-			}
-			var ratio = Math2.log(this.get(0) ) - Math2.log(e.get(0) );
-			var num = new Array(this.length);
-			for (var i = 0; i < this.length; i++) {
-				num[i] = this.get(i);
-			}
-			for (var i = 0; i < e.length; i++) {
-				num[i] ^= Math2.exp(Math2.log(e.get(i) ) + ratio);
-			}
-			// recursive call
-			return new Polynomial(num, 0).mod(e);
-		}
-	};
-
-	var Bitarray = function(l) {
-		this.length = l;
-		this.bits = (~0 >>> 1).toString(2).length + 1;
-		this.i = 0;
-		this.index = 0;
-		this.inbounds= true;
-		this.offset = 0;
-		this.array = [];
-		for(var i = 0; i < Math.ceil(l / this.bits); i++) {
-			this.array[i] = 0;
-		}
-	}
-	Bitarray.prototype = {
-		p : function(i) {
-			this.i = i;
-			this.inbounds = i < this.length;
-			this.index = Math.floor(i / this.bits);
-			this.offset = i % this.bits;
-
-			return this;
-		},
-		n : function() {
-			return this.p(this.i+1);
-		},
-		get : function() {
-			if(this.inbounds)
-				return (this.array[this.index] & (1 << this.offset)) ? 1 : 0;
-			else
-				return null;
-		},
-		set : function(v) {
-			if(this.inbounds) {
-				if(v)
-					this.array[this.index] |= (1 << this.offset);
-				else
-					this.array[this.index] &= ~(1 << this.offset);
-			}
-			return this;
-		},
-		put : function(v, l, r) {
-			for(var i = 0; i < l; i++){
-				this.set(((v >>> (r ? i : l-1-i)) & 1) == 1).n();
-			}
-			return this;
-		},
-		write : function(a) {
-			for(var i = 0; i < a.length && this.inbounds; i++)
-				this.set(a.p(i).get()).p(this.i + 1);
-			return this;
-		},
-		bytes : function() {
-			var tmp = new Array(Math.ceil(this.length / 8));
-			var sav = this.i;
-			this.p(0);
-			
-			for(var i = 0; i < tmp.length; i++) {
-				for(var b = 0; b < 8; b++) {
-					tmp[i] |= (this.get()) << (7 - b);
-					this.n();
-				}
-			}
-			this.p(sav);
-			return tmp;
-		}
-	}
-	var Bitmap = function(w, h) {
-		this.width = w;
-		this.height = h;
-		this.x = 0;
-		this.y = 0;
-		this.map = new Bitarray(w*h);
-		this.mask = new Bitarray(w*h);
-		this.inbounds = true;
-	}
-	Bitmap.prototype = {
-		p : function(x, y) {
-			this.x = x;
-			this.y = y;
-			this.map.p(y * this.width + x);
-			this.mask.p(y * this.width + x);
-			this.inbounds = this.map.inbounds;
-			return this;
-		},
-		n : function() {
-			return this.p(this.x+1,this.y);
-		},
-		set : function(v) {
-			this.mask.set(1);
-			this.map.set(v);
-			return this;
-		},
-		put : function(v, l, r) {
-			this.map.put(v, l, r);
-			this.mask.put(~0, l, r);
-			return this;
-		},
-		get: function() {
-			return this.map.get()
-		},
-		merge: function(map) {
-			var xs = this.x;
-			var ys = this.y;
-			for(var y = 0; y < map.height; y++) {
-				for(var x = 0; x < map.width; x++) {
-					if(xs+x < 0 || ys+y < 0 || xs+x >= this.width
-						|| ys+y >= this.height)
-						continue;
-					if(map.p(x,y).ismasked())
-						this.p(xs+x, ys+y)
-							.set(map.get());
-				}
-			}
-			return this;
-		},
-		ismasked : function() {
-			return this.mask.get();
-		},
-		rotate : function() {
-			map = new Bitmap(this.height, this.width)
-			for(var y = 0; y < this.height; y++)
-				for(var x = 0; x < this.width; x++) {
-					if(this.p(x, y).ismasked())
-						map.p(this.height-1-y,x).set(this.get());
-				}
-			return map;
-		}
-	}
-	
 	var bch = function(data, mask) {
 		var highest = mask.toString(2).length - 1;
 		if(mask == 0)
@@ -799,5 +794,5 @@ $.fn.qrcode= function() {
 		//var drawer = new TextDrawer(qrcode.image, [" "]);
 		drawer.draw();
 	});
-  };
+};
 })( jQuery );
